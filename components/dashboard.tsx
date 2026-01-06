@@ -21,6 +21,14 @@ interface DashboardProps {
 }
 
 export function Dashboard({ facultyEmail, onViewReport, onLogout }: DashboardProps) {
+  // Semester mapping based on year
+  const yearToSemesters: Record<string, number[]> = {
+    "1st": [1, 2],
+    "2nd": [3, 4],
+    "3rd": [5, 6],
+    "4th": [7, 8],
+  }
+
   // Section details form state
   const [year, setYear] = useState("")
   const [semester, setSemester] = useState("")
@@ -180,7 +188,10 @@ export function Dashboard({ facultyEmail, onViewReport, onLogout }: DashboardPro
                 {/* Year */}
                 <div className="space-y-2">
                   <Label htmlFor="year">Year *</Label>
-                  <Select value={year} onValueChange={setYear}>
+                  <Select value={year} onValueChange={(value) => {
+                    setYear(value)
+                    setSemester("") // Reset semester when year changes
+                  }}>
                     <SelectTrigger id="year">
                       <SelectValue placeholder="Select year" />
                     </SelectTrigger>
@@ -201,7 +212,7 @@ export function Dashboard({ facultyEmail, onViewReport, onLogout }: DashboardPro
                       <SelectValue placeholder="Select semester" />
                     </SelectTrigger>
                     <SelectContent>
-                      {[1, 2, 3, 4, 5, 6, 7, 8].map((sem) => (
+                      {(year ? yearToSemesters[year] || [] : [1, 2, 3, 4, 5, 6, 7, 8]).map((sem) => (
                         <SelectItem key={sem} value={String(sem)}>
                           Semester {sem}
                         </SelectItem>
