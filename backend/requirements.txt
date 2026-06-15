@@ -1,0 +1,12 @@
+fastapi
+uvicorn[standard]
+sqlalchemy
+pymysql
+cryptography
+pandas
+openpyxl
+xlrd
+jinja2
+python-multipart
+python-dotenv
+pydantic

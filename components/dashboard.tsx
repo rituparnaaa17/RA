@@ -2,7 +2,7 @@
 
 import type React from "react"
 
-import { useState, useEffect } from "react"
+import { useState } from "react"
 import Image from "next/image"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -11,7 +11,7 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Upload, FileCheck, AlertCircle, CheckCircle2, LogOut } from "lucide-react"
-import * as mockApi from "@/lib/mockApi"
+import * as api from "@/lib/api"
 import { useToast } from "@/hooks/use-toast"
 
 interface DashboardProps {
@@ -35,11 +35,14 @@ export function Dashboard({ facultyEmail, onViewReport, onLogout }: DashboardPro
   const [department, setDepartment] = useState("")
   const [section, setSection] = useState("")
   const [facultyAdvisor, setFacultyAdvisor] = useState("")
+  const [batch, setBatch] = useState("")
+  const [examDate, setExamDate] = useState("")
 
   // Upload state
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [isUploading, setIsUploading] = useState(false)
   const [uploadStatus, setUploadStatus] = useState<any>(null)
+  const [reportHtml, setReportHtml] = useState<string | null>(null)
   const [uploadErrors, setUploadErrors] = useState<string[]>([])
   const [isDragging, setIsDragging] = useState(false)
 
@@ -47,14 +50,6 @@ export function Dashboard({ facultyEmail, onViewReport, onLogout }: DashboardPro
 
   // Check if form is complete
   const isFormComplete = year && semester && department && section && facultyAdvisor
-
-  // Check if section has already uploaded a file
-  useEffect(() => {
-    if (isFormComplete) {
-      const status = mockApi.getSectionUploadStatus({ year, semester, department, section })
-      setUploadStatus(status)
-    }
-  }, [year, semester, department, section, isFormComplete])
 
   const handleFileSelect = (file: File) => {
     const validTypes = ["application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "application/vnd.ms-excel"]
@@ -85,22 +80,25 @@ export function Dashboard({ facultyEmail, onViewReport, onLogout }: DashboardPro
 
     setIsUploading(true)
     setUploadErrors([])
+    setReportHtml(null)
 
     try {
-      const result = await mockApi.uploadSectionExcel(
-        { year, semester, department, section, facultyAdvisor },
+      const result = await api.uploadSectionExcel(
+        { year, semester, department, section, facultyAdvisor, batch, examDate },
         selectedFile,
       )
 
-      if (result.success) {
+      if (result.success && result.reportHtml) {
+        setReportHtml(result.reportHtml)
         toast({
-          title: "Upload Successful",
-          description: "Section Excel file has been uploaded successfully",
+          title: "Report Generated",
+          description: "Excel processed successfully. Click 'Preview Report' to open it.",
         })
 
-        // Refresh upload status
-        const status = mockApi.getSectionUploadStatus({ year, semester, department, section })
-        setUploadStatus(status)
+        setUploadStatus({
+          fileName: selectedFile.name,
+          uploadedAt: new Date().toISOString(),
+        })
         setSelectedFile(null)
       } else {
         setUploadErrors(result.errors || [result.message])
@@ -121,24 +119,9 @@ export function Dashboard({ facultyEmail, onViewReport, onLogout }: DashboardPro
     }
   }
 
-  const handlePreviewReport = async () => {
-    try {
-      const reportData = await mockApi.getFormattedReport({
-        year,
-        semester,
-        department,
-        section,
-        facultyAdvisor,
-      })
-
-      onViewReport?.(reportData)
-    } catch (error: any) {
-      toast({
-        title: "Error",
-        description: error.message || "Failed to load report",
-        variant: "destructive",
-      })
-    }
+  const handlePreviewReport = () => {
+    if (!reportHtml) return
+    api.openReportInNewTab(reportHtml)
   }
 
   return (
@@ -267,6 +250,30 @@ export function Dashboard({ facultyEmail, onViewReport, onLogout }: DashboardPro
                     onChange={(e) => setFacultyAdvisor(e.target.value)}
                   />
                 </div>
+
+                {/* Batch */}
+                <div className="space-y-2">
+                  <Label htmlFor="batch">Batch (optional)</Label>
+                  <Input
+                    id="batch"
+                    type="text"
+                    placeholder="e.g. 2022–2026"
+                    value={batch}
+                    onChange={(e) => setBatch(e.target.value)}
+                  />
+                </div>
+
+                {/* Exam Date */}
+                <div className="space-y-2">
+                  <Label htmlFor="examDate">Exam Date (optional)</Label>
+                  <Input
+                    id="examDate"
+                    type="text"
+                    placeholder="e.g. Nov / Dec 2025"
+                    value={examDate}
+                    onChange={(e) => setExamDate(e.target.value)}
+                  />
+                </div>
               </div>
             </CardContent>
           </Card>
@@ -303,9 +310,8 @@ export function Dashboard({ facultyEmail, onViewReport, onLogout }: DashboardPro
                   // Upload interface
                   <>
                     <div
-                      className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors ${
-                        isDragging ? "border-primary bg-primary/5" : "border-muted-foreground/25"
-                      }`}
+                      className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors ${isDragging ? "border-primary bg-primary/5" : "border-muted-foreground/25"
+                        }`}
                       onDragOver={(e) => {
                         e.preventDefault()
                         setIsDragging(true)

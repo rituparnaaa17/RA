@@ -29,7 +29,7 @@ export default function Home() {
   return (
     <>
       {currentPage === "login" && <LoginPage onLogin={handleLogin} />}
-      {currentPage === "dashboard" && <Dashboard facultyEmail={facultyEmail} onViewReport={handleViewReport} />}
+      {currentPage === "dashboard" && <Dashboard facultyEmail={facultyEmail} onViewReport={handleViewReport} onLogout={() => setCurrentPage("login")} />}
       {currentPage === "report" && <FinalReportPage reportData={reportData} onBack={handleBackToDashboard} />}
     </>
   )
