@@ -63,6 +63,18 @@ logger = logging.getLogger(__name__)
 UPLOAD_DIR = os.path.join(os.path.dirname(__file__), "uploads")
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
+from fastapi import Request
+from fastapi.responses import JSONResponse
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    logger.error(f"Global exception: {exc}")
+    return JSONResponse(
+        status_code=500,
+        content={"success": False, "message": "Internal Server Error (Check Railway Logs)"},
+    )
+
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Startup — create tables + verify DB
