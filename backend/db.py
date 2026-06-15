@@ -24,16 +24,18 @@ def _build_url():
     from urllib.parse import quote_plus
 
     # ── 1. Explicit DATABASE_URL ──────────────────────────────────────────────
-    raw = os.getenv("DATABASE_URL", "")
+    # Also check MYSQL_PUBLIC_URL (Railway's public-facing URL for MySQL)
+    raw = os.getenv("MYSQL_PUBLIC_URL") or os.getenv("DATABASE_URL", "")
     if raw:
         # Railway/PlanetScale give "mysql://" but SQLAlchemy needs "mysql+pymysql://"
         if raw.startswith("mysql://"):
             raw = raw.replace("mysql://", "mysql+pymysql://", 1)
-        logger.info("Using DATABASE_URL from environment.")
+        logger.info("Using DATABASE_URL/MYSQL_PUBLIC_URL from environment.")
         return raw, ""
 
-    # ── 2. Railway auto-injected individual vars ──────────────────────────────
+    # ── 2. Railway auto-injected individual vars (public host) ────────────────
     mysql_host = os.getenv("MYSQLHOST", "")
+
     if mysql_host:
         user     = quote_plus(os.getenv("MYSQLUSER",     "root"))
         password = quote_plus(os.getenv("MYSQLPASSWORD", ""))
