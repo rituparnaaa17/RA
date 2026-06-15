@@ -18,7 +18,11 @@ class Config:
     _MYSQL_URL = f"mysql+pymysql://{quote_plus(DB_USER)}:{quote_plus(DB_PASSWORD)}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
     
     # If users provide specific DATABASE_URL in env, use that, otherwise use constructed MySQL string
-    DATABASE_URL = os.getenv("DATABASE_URL", _MYSQL_URL)
+    _raw_url = os.getenv("DATABASE_URL", _MYSQL_URL)
+    # Railway/PlanetScale provide "mysql://" but SQLAlchemy needs "mysql+pymysql://"
+    if _raw_url.startswith("mysql://"):
+        _raw_url = _raw_url.replace("mysql://", "mysql+pymysql://", 1)
+    DATABASE_URL = _raw_url
     
     # Auuth
     AUTH_SECRET_KEY = os.getenv("AUTH_SECRET_KEY", "mysupersecret")
