@@ -13,8 +13,12 @@ import os
 # Allow running from the project root
 sys.path.insert(0, os.path.dirname(__file__))
 
+from passlib.context import CryptContext
 from db import engine, SessionLocal, Base
 from models import Faculty
+
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
 
 # ---- Add your faculty members here ----
 FACULTY_DATA = [
@@ -57,7 +61,7 @@ def seed():
 
             faculty = Faculty(
                 email=entry["email"],
-                password=entry["password"],
+                password=pwd_context.hash(entry["password"]),
                 name=entry["name"],
                 department=entry["department"],
             )

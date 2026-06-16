@@ -1,12 +1,14 @@
 /**
- * auth.js — Real faculty login against the MySQL backend.
- * Replaces the previous mock implementation.
+ * auth.js — Faculty login with JWT token management.
  */
+
+import { saveToken, clearToken } from "@/lib/api"
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api"
 
 /**
  * Calls POST /api/auth/login
+ * On success, saves the JWT token to localStorage.
  * Returns { success, message, name? }
  */
 export async function login(email, password) {
@@ -41,6 +43,19 @@ export async function login(email, password) {
       }
     }
 
+    // Save JWT token for subsequent authenticated requests
+    if (data.token) {
+      saveToken(data.token)
+    }
+
+    // Save user info
+    if (typeof window !== "undefined") {
+      localStorage.setItem(
+        "ra_user",
+        JSON.stringify({ email, displayName: data.name || email.split("@")[0] })
+      )
+    }
+
     return {
       success: true,
       message: data.message || "Login successful",
@@ -54,18 +69,21 @@ export async function login(email, password) {
       success: false,
       message:
         err.message ||
-        "Unable to reach the server. Is the backend running on port 8000?",
+        "Unable to reach the server. Is the backend running?",
     }
   }
 }
 
 export async function logout() {
-  // Stateless — nothing to do on the server side
+  clearToken()
   return { success: true }
 }
 
 export function getCurrentUser() {
-  return null
+  if (typeof window === "undefined") return null
+  const raw = localStorage.getItem("ra_user")
+  if (!raw) return null
+  try { return JSON.parse(raw) } catch { return null }
 }
 
 // Firebase-compatible interface (for easy migration)

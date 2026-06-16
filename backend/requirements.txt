@@ -10,3 +10,6 @@ jinja2
 python-multipart
 python-dotenv
 pydantic
+passlib[bcrypt]
+python-jose[cryptography]
+slowapi

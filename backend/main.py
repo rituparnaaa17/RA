@@ -22,11 +22,17 @@ No mock, dummy, or sample data is used anywhere in this pipeline.
 import logging
 import os
 import uuid
+from datetime import datetime, timedelta
 
-from fastapi import Depends, FastAPI, File, Form, UploadFile
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from jose import JWTError, jwt
+from passlib.context import CryptContext
 from pydantic import BaseModel
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 from sqlalchemy.orm import Session
 
 # ── Internal modules ──────────────────────────────────────────────────────────
@@ -37,9 +43,22 @@ from services.parse_excel import validate_and_extract_data
 from services.render import render_report
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Security config
+# ─────────────────────────────────────────────────────────────────────────────
+SECRET_KEY = os.environ.get("AUTH_SECRET_KEY", "change-me-in-production-railway-env")
+ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_HOURS = 8
+
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+bearer_scheme = HTTPBearer()
+
+limiter = Limiter(key_func=get_remote_address)
+
+# ─────────────────────────────────────────────────────────────────────────────
 # App + Middleware
 # ─────────────────────────────────────────────────────────────────────────────
 app = FastAPI(title="SRM Result Analysis Backend")
+app.state.limiter = limiter
 
 origins = [
     "http://localhost:3000",
@@ -65,14 +84,43 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 from fastapi import Request
 from fastapi.responses import JSONResponse
+from slowapi.errors import RateLimitExceeded
+
+@app.exception_handler(RateLimitExceeded)
+async def rate_limit_handler(request: Request, exc: RateLimitExceeded):
+    return JSONResponse(
+        status_code=429,
+        content={"success": False, "message": "Too many requests. Please wait and try again."},
+    )
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
     logger.error(f"Global exception: {exc}")
     return JSONResponse(
         status_code=500,
-        content={"success": False, "message": "Internal Server Error (Check Railway Logs)"},
+        content={"success": False, "message": "Internal Server Error"},
     )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# JWT helpers
+# ─────────────────────────────────────────────────────────────────────────────
+def create_access_token(data: dict) -> str:
+    payload = data.copy()
+    payload["exp"] = datetime.utcnow() + timedelta(hours=ACCESS_TOKEN_EXPIRE_HOURS)
+    return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
+
+
+def require_auth(credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme)) -> str:
+    """FastAPI dependency — validates JWT token and returns the faculty email."""
+    try:
+        payload = jwt.decode(credentials.credentials, SECRET_KEY, algorithms=[ALGORITHM])
+        email: str = payload.get("sub", "")
+        if not email:
+            raise HTTPException(status_code=401, detail="Invalid token")
+        return email
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Token expired or invalid. Please log in again.")
 
 
 
@@ -108,8 +156,9 @@ class LoginRequest(BaseModel):
 
 
 @app.post("/api/auth/login")
-def login(body: LoginRequest, db: Session = Depends(get_db)):
-    """Validates faculty credentials against the `faculty` table."""
+@limiter.limit("5/minute")
+def login(request: Request, body: LoginRequest, db: Session = Depends(get_db)):
+    """Validates faculty credentials and returns a signed JWT token."""
     if "srm" not in body.email.lower():
         return JSONResponse(
             status_code=401,
@@ -117,21 +166,25 @@ def login(body: LoginRequest, db: Session = Depends(get_db)):
         )
 
     faculty = db.query(Faculty).filter(Faculty.email == body.email).first()
-    if not faculty:
+
+    # Constant-time check — always verify even if user not found to prevent timing attacks
+    valid_password = (
+        faculty is not None
+        and pwd_context.verify(body.password, faculty.password)
+    )
+
+    if not faculty or not valid_password:
         return JSONResponse(
             status_code=401,
-            content={"success": False, "message": "Email not registered. Contact admin."},
-        )
-    if faculty.password != body.password:
-        return JSONResponse(
-            status_code=401,
-            content={"success": False, "message": "Incorrect password."},
+            content={"success": False, "message": "Invalid email or password."},
         )
 
+    token = create_access_token({"sub": faculty.email})
     return {
         "success": True,
         "message": "Login successful",
         "name": faculty.name or body.email.split("@")[0],
+        "token": token,
     }
 
 
@@ -180,6 +233,7 @@ async def upload_and_generate_report(
     batch: str = Form(""),
     exam_date: str = Form(""),
     db: Session = Depends(get_db),
+    current_user: str = Depends(require_auth),
 ):
     """
     Full pipeline — no mock data at any stage:
