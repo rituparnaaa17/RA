@@ -30,13 +30,12 @@ FACULTY_DATA = [
         "name": "Faculty User",
         "department": "CSE",
     },
-    # Add more entries here, e.g.:
-    # {
-    #     "email": "rajesh.kumar@srmist.edu.in",
-    #     "password": "your_password",
-    #     "name": "Rajesh Kumar",
-    #     "department": "CSE",
-    # },
+    {
+        "email": "rg0592@srmist.edu.in",
+        "password": "okokokok",
+        "name": "Rituparnaaa",
+        "department": "CSE",
+    },
 ]
 
 
