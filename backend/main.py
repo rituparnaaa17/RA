@@ -24,12 +24,12 @@ import os
 import uuid
 from datetime import datetime, timedelta
 
+import bcrypt
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
-from passlib.context import CryptContext
 from pydantic import BaseModel
 from slowapi import Limiter
 from slowapi.util import get_remote_address
@@ -49,7 +49,7 @@ SECRET_KEY = os.environ.get("AUTH_SECRET_KEY", "change-me-in-production-railway-
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_HOURS = 8
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+pwd_context = None  # unused — replaced by bcrypt directly
 bearer_scheme = HTTPBearer()
 
 limiter = Limiter(key_func=get_remote_address)
@@ -170,7 +170,7 @@ def login(request: Request, body: LoginRequest, db: Session = Depends(get_db)):
     # Constant-time check — always verify even if user not found to prevent timing attacks
     valid_password = (
         faculty is not None
-        and pwd_context.verify(body.password, faculty.password)
+        and bcrypt.checkpw(body.password.encode("utf-8"), faculty.password.encode("utf-8"))
     )
 
     if not faculty or not valid_password:
