@@ -63,6 +63,7 @@ app.state.limiter = limiter
 origins = [
     "http://localhost:3000",
     "https://ra-liart.vercel.app",
+    "https://srm-result-analysis.vercel.app",
 ]
 
 app.add_middleware(
