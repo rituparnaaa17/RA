@@ -13,4 +13,3 @@ pydantic
 bcrypt
 python-jose[cryptography]
 slowapi
-

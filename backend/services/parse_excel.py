@@ -12,9 +12,11 @@ Key behaviours:
   - Returns a structured parsed_data dict instead of a raw DataFrame.
 """
 
+import io
 import logging
 import os
 import re
+from typing import Union
 
 import pandas as pd
 
@@ -221,30 +223,43 @@ def _is_valid_subject_column(col_name: str) -> bool:
 # Main entry point
 # ---------------------------------------------------------------------------
 
-def validate_and_extract_data(file_path: str):
+def validate_and_extract_data(
+    file_source: Union[str, tuple],
+):
     """
     Reads an Excel file, validates its structure, and returns:
       (DataFrame, subject_columns, metadata_dict)
+
+    ``file_source`` can be:
+      - A file-path string  (local dev — reads from disk)
+      - A tuple (BytesIO, ext_string)  (production — in-memory, no disk write)
+        e.g. (io.BytesIO(contents), ".xlsx")
 
     DataFrame columns are normalised: Reg.No, Name, <subject>, ...
     No mock data is ever inserted; errors are raised with meaningful messages.
 
     Raises:
-      FileNotFoundError  — file missing on disk
-      ValueError("Invalid Excel format: ...")   — unreadable file
-      ValueError("Header row not found")        — missing Reg.No + Name header
-      ValueError("Subject columns not detected") — no subject columns found
-      ValueError("Unsupported file extension: ...") — bad extension
+      FileNotFoundError  — file missing on disk (path mode only)
+      ValueError(...)    — structural issues with the Excel file
     """
-    # ── 1. File existence & extension ────────────────────────────────────────
-    if not os.path.exists(file_path):
-        raise FileNotFoundError(f"Uploaded file not found on disk: {file_path}")
+    # ── 1. Resolve source + engine ────────────────────────────────────────────
+    if isinstance(file_source, tuple):
+        # In-memory mode — (BytesIO, ".xlsx" / ".xls")
+        bio, ext = file_source
+        ext = ext.lower()
+        read_target = bio          # pd.read_excel accepts BytesIO directly
+    else:
+        # File-path mode
+        file_path = file_source
+        if not os.path.exists(file_path):
+            raise FileNotFoundError(f"Uploaded file not found on disk: {file_path}")
+        ext = os.path.splitext(file_path)[1].lower()
+        read_target = file_path
 
-    ext = os.path.splitext(file_path)[1].lower()
     if ext == ".xls":
-        engine = "xlrd"
+        pd_engine = "xlrd"
     elif ext in (".xlsx", ".xlsm", ".xlam"):
-        engine = "openpyxl"
+        pd_engine = "openpyxl"
     else:
         raise ValueError(
             f"Unsupported file extension: '{ext}'. Please upload .xlsx or .xls"
@@ -252,7 +267,7 @@ def validate_and_extract_data(file_path: str):
 
     # ── 2. Read file ──────────────────────────────────────────────────────────
     try:
-        raw_df = pd.read_excel(file_path, engine=engine, header=None, dtype=str)
+        raw_df = pd.read_excel(read_target, engine=pd_engine, header=None, dtype=str)
     except Exception as exc:
         raise ValueError(f"Invalid Excel format: {exc}") from exc
 

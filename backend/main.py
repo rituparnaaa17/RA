@@ -5,10 +5,11 @@ Endpoints:
   POST /api/auth/login         — validate faculty credentials against MySQL
   POST /api/reports/upload     — parse Excel -> compute stats -> render
                                  report_landscape.html -> persist to MySQL
-  GET  /                       — health check
+  GET  /                       — root info
+  GET  /health                 — lightweight health check for uptime monitors
 
 Pipeline (upload):
-  Upload Excel
+  Upload Excel (in-memory, no disk write)
     -> validate_and_extract_data()   [parse_excel.py]
     -> compute_report_data()         [compute.py]
     -> build Jinja2 context          [main.py — structured dicts only]
@@ -19,12 +20,13 @@ Pipeline (upload):
 No mock, dummy, or sample data is used anywhere in this pipeline.
 """
 
+import io
 import logging
 import os
-import uuid
 from datetime import datetime, timedelta
 
 import bcrypt
+from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
@@ -32,6 +34,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
 from pydantic import BaseModel
 from slowapi import Limiter
+from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 from slowapi.util import get_remote_address
 from sqlalchemy.orm import Session
@@ -43,16 +46,26 @@ from services.compute import compute_report_data
 from services.parse_excel import validate_and_extract_data
 from services.render import render_report
 
+# ── Load .env for local development (no-op in production) ────────────────────
+from pathlib import Path
+_env_path = Path(__file__).parent / ".env"
+if _env_path.exists():
+    load_dotenv(dotenv_path=_env_path)
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Security config
 # ─────────────────────────────────────────────────────────────────────────────
-SECRET_KEY = os.environ.get("AUTH_SECRET_KEY", "change-me-in-production-railway-env")
+# Read SECRET_KEY first (Render env var convention), fall back to AUTH_SECRET_KEY
+# (old local .env convention) so existing dev setups don't break.
+SECRET_KEY = (
+    os.environ.get("SECRET_KEY")
+    or os.environ.get("AUTH_SECRET_KEY")
+    or "change-me-in-production"
+)
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_HOURS = 8
 
-pwd_context = None  # unused — replaced by bcrypt directly
 bearer_scheme = HTTPBearer()
-
 limiter = Limiter(key_func=get_remote_address)
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -61,17 +74,20 @@ limiter = Limiter(key_func=get_remote_address)
 app = FastAPI(title="SRM Result Analysis Backend")
 app.state.limiter = limiter
 
-origins = [
-    "http://localhost:3000",
-    "https://ra-liart.vercel.app",
-    "https://srm-result-analysis.vercel.app",
-]
+# CORS — read from env var so no hardcoded domains are committed.
+# On Render set: ALLOWED_ORIGINS=https://srm-result-analysis.vercel.app
+# Locally the .env can have: ALLOWED_ORIGINS=http://localhost:3000
+_raw_origins = os.environ.get(
+    "ALLOWED_ORIGINS",
+    "http://localhost:3000,https://ra-liart.vercel.app,https://srm-result-analysis.vercel.app",
+)
+origins = [o.strip() for o in _raw_origins.split(",") if o.strip()]
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST"],
     allow_headers=["*"],
 )
 
@@ -83,13 +99,13 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-UPLOAD_DIR = os.path.join(os.path.dirname(__file__), "uploads")
-os.makedirs(UPLOAD_DIR, exist_ok=True)
+# Upload size limit — protect the free-tier instance from abuse
+MAX_UPLOAD_BYTES = 5 * 1024 * 1024  # 5 MB
 
-from fastapi import Request
-from fastapi.responses import JSONResponse
-from slowapi.errors import RateLimitExceeded
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Exception handlers
+# ─────────────────────────────────────────────────────────────────────────────
 @app.exception_handler(RateLimitExceeded)
 async def rate_limit_handler(request: Request, exc: RateLimitExceeded):
     return JSONResponse(
@@ -97,9 +113,10 @@ async def rate_limit_handler(request: Request, exc: RateLimitExceeded):
         content={"success": False, "message": "Too many requests. Please wait and try again."},
     )
 
+
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
-    logger.error(f"Global exception: {exc}")
+    logger.error("Global exception: %s", exc)
     return JSONResponse(
         status_code=500,
         content={"success": False, "message": "Internal Server Error"},
@@ -127,7 +144,6 @@ def require_auth(credentials: HTTPAuthorizationCredentials = Depends(bearer_sche
         raise HTTPException(status_code=401, detail="Token expired or invalid. Please log in again.")
 
 
-
 # ─────────────────────────────────────────────────────────────────────────────
 # Startup — create tables + verify DB
 # ─────────────────────────────────────────────────────────────────────────────
@@ -144,11 +160,17 @@ def on_startup():
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Health check
+# Health check endpoints
 # ─────────────────────────────────────────────────────────────────────────────
 @app.get("/")
-def health():
+def root():
     return {"status": "ok", "service": "SRM Result Analysis"}
+
+
+@app.get("/health")
+def health():
+    """Lightweight health check — used by UptimeRobot to keep Render awake."""
+    return {"status": "ok"}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -171,7 +193,7 @@ def login(request: Request, body: LoginRequest, db: Session = Depends(get_db)):
 
     faculty = db.query(Faculty).filter(Faculty.email == body.email).first()
 
-    # Constant-time check — always verify even if user not found to prevent timing attacks
+    # Constant-time check — always verify even if user not found (prevents timing attacks)
     valid_password = (
         faculty is not None
         and bcrypt.checkpw(body.password.encode("utf-8"), faculty.password.encode("utf-8"))
@@ -240,18 +262,17 @@ async def upload_and_generate_report(
     current_user: str = Depends(require_auth),
 ):
     """
-    Full pipeline — no mock data at any stage:
-      1. Validate + save the uploaded Excel file.
-      2. Parse the Excel (subjects, marks, absent/detained markers).
-      3. Compute grade-level statistics.
-      4. Render report_landscape.html via Jinja2 (structured context only).
-      5. Persist the report to MySQL (graceful if DB unavailable).
-      6. Return the rendered HTML string.
+    Full pipeline — no mock data at any stage, no disk writes in production:
+      1. Validate file type and size.
+      2. Read Excel into memory (BytesIO).
+      3. Parse the Excel (subjects, marks, absent/detained markers).
+      4. Compute grade-level statistics.
+      5. Render report_landscape.html via Jinja2 (structured context only).
+      6. Persist the report to MySQL (graceful if DB unavailable).
+      7. Return the rendered HTML string.
     """
-    saved_path: str | None = None
-
     try:
-        # ── 1. Validate file extension ────────────────────────────────────────
+        # ── 1. Validate filename / extension ─────────────────────────────────
         filename = (file.filename or "").strip()
         if not filename:
             return _error_html("No file was received by the server.")
@@ -262,26 +283,26 @@ async def upload_and_generate_report(
                 f"Unsupported file type '{ext}'. Please upload a valid Excel file (.xlsx or .xls)."
             )
 
-        # ── 2. Read & save uploaded file ──────────────────────────────────────
+        # ── 2. Read into memory + size guard ─────────────────────────────────
         contents = await file.read()
         if not contents:
             return _error_html("The uploaded file is empty (0 bytes).")
 
-        file_uuid  = str(uuid.uuid4())
-        saved_path = os.path.join(UPLOAD_DIR, f"{file_uuid}{ext}")
-        with open(saved_path, "wb") as fh:
-            fh.write(contents)
+        if len(contents) > MAX_UPLOAD_BYTES:
+            return _error_html(
+                f"File too large ({len(contents) // 1024} KB). Maximum allowed size is 5 MB."
+            )
 
-        logger.info("Saved upload: %s (%d bytes)", saved_path, len(contents))
+        logger.info("Received upload: %s (%d bytes)", filename, len(contents))
 
-        # ── 3. Parse & validate Excel ─────────────────────────────────────────
+        # ── 3. Parse & validate Excel (in-memory — no disk write) ────────────
+        file_source = (io.BytesIO(contents), ext)
         try:
-            df, subject_columns, xl_meta = validate_and_extract_data(saved_path)
+            df, subject_columns, xl_meta = validate_and_extract_data(file_source)
         except FileNotFoundError as exc:
-            return _error_html(f"File save error: {exc}", 500)
+            return _error_html(f"File error: {exc}", 500)
         except ValueError as exc:
             msg = str(exc)
-            # Map structured error messages to user-friendly descriptions
             if "Header row not found" in msg:
                 return _error_html(
                     "Header row not found — the Excel file must contain 'Reg.No' and 'Name' columns."
@@ -321,7 +342,6 @@ async def upload_and_generate_report(
         )
 
         # ── 5. Build Jinja2 template context ──────────────────────────────────
-        # Helper: prefer form-supplied value, fall back to Excel-parsed value.
         def _pick(form_val: str, xl_val: str) -> str:
             v = (form_val or "").strip()
             return v if v else (xl_val or "")
@@ -337,14 +357,14 @@ async def upload_and_generate_report(
         sem_label     = _pick(sem,                  xl_meta.get("sem",  ""))
         section_label = _pick(section,              xl_meta.get("section", ""))
         faculty_label = _pick(faculty_advisor_name, "")
-        batch_label   = (batch    or "").strip() or "—"
+        batch_label   = (batch     or "").strip() or "—"
         exam_label    = (exam_date or "").strip() or "—"
         branch_label  = xl_meta.get("branch", "")
 
         ys_parts = [
             p for p in [
                 year_label,
-                f"Sem {sem_label}"       if sem_label     else "",
+                f"Sem {sem_label}"         if sem_label     else "",
                 f"Section {section_label}" if section_label else "",
             ]
             if p
@@ -352,7 +372,6 @@ async def upload_and_generate_report(
         year_sem_section = " / ".join(ys_parts) if ys_parts else "N/A"
         degree_dept      = dept_label if dept_label else (branch_label or "N/A")
 
-        # ── Page 1 — subject rows (all data from computed stats, no placeholders)
         subjects_ctx = [
             {
                 "course_code":    s.get("subject_name", ""),
@@ -366,7 +385,6 @@ async def upload_and_generate_report(
             for s in stats
         ]
 
-        # ── Page 1 — summary row
         summary_ctx = {
             "total_students":           overall["total_students"],
             "total_subjects":           len(stats),
@@ -379,7 +397,6 @@ async def upload_and_generate_report(
             "success_percent":          f"{overall['success_percent']:.2f}%",
         }
 
-        # ── Page 2 — Annexure 1 failure lists
         def _one(f: dict) -> dict:
             subs = f.get("failed_subjects", [])
             return {
@@ -404,7 +421,6 @@ async def upload_and_generate_report(
             "more_than_three": [_multi(f) for f in failures.get("more_than_3", [])],
         }
 
-        # ── Page 3 — Annexure 2 grade distribution
         annexure2_rows = []
         for s in stats:
             g = s.get("grades", {})
@@ -427,13 +443,11 @@ async def upload_and_generate_report(
             })
 
         template_context = {
-            # Header — sourced from Excel preamble; no defaults if empty
             "institute_name":    institute_name,
             "faculty_name":      faculty_name,
             "campus_name":       campus_name,
             "department_name":   dept_from_xl,
             "exam_title":        exam_title_xl,
-            # Meta grid
             "degree_department": degree_dept,
             "faculty_advisor":   faculty_label,
             "total_strength":    overall["total_students"],
@@ -441,7 +455,6 @@ async def upload_and_generate_report(
             "batch":             batch_label,
             "exam_date":         exam_label,
             "assessment_label":  exam_title_xl or f"SEMESTER {sem_label} EXAMINATION",
-            # Data tables — all from real uploaded data
             "subjects":   subjects_ctx,
             "summary":    summary_ctx,
             "annexure1":  annexure1_ctx,
@@ -466,7 +479,7 @@ async def upload_and_generate_report(
                 section=section,
                 faculty_advisor_name=faculty_advisor_name,
                 original_filename=filename,
-                file_path=saved_path,
+                file_path=None,   # no disk write in production
                 status="processed",
             )
             record.set_computed({
@@ -486,7 +499,6 @@ async def upload_and_generate_report(
                 "[WARN] Could not persist report to MySQL (report still returned): %s",
                 db_exc,
             )
-            # Non-fatal — the HTML is ready; skip persistence silently.
 
         return HTMLResponse(content=html, status_code=200)
 

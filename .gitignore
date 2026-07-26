@@ -21,8 +21,12 @@ backend/*.db
 
 # ── Environment / Secrets ─────────────────────────────────────────────────────
 .env
-.env.*
 backend/.env
+# Allow the example template to be committed
+!backend/.env.example
+# Aiven SSL certificate — contains credentials, never commit
+backend/ca.pem
+ca.pem
 
 # ── OS / Editor ───────────────────────────────────────────────────────────────
 .DS_Store
