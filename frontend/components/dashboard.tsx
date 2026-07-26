@@ -384,6 +384,11 @@ export function Dashboard({ facultyEmail, onViewReport, onLogout }: DashboardPro
           )}
         </div>
       </main>
+
+      {/* Footer */}
+      <footer className="text-center py-3 text-[11px] text-muted-foreground/60">
+        Created by <span className="font-medium text-muted-foreground">Saransh Dutta</span> &amp; <span className="font-medium text-muted-foreground">Rituparna Ghosh</span>
+      </footer>
     </div>
   )
 }

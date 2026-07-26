@@ -227,6 +227,57 @@
       background: #f8fafc;
     }
 
+    /* Floating Back to Top button */
+    #back-to-top {
+      position: fixed;
+      bottom: 32px;
+      right: 32px;
+      z-index: 9999;
+      width: 48px;
+      height: 48px;
+      border-radius: 50%;
+      background: #2563eb;
+      color: #fff;
+      border: none;
+      cursor: pointer;
+      font-size: 22px;
+      line-height: 48px;
+      text-align: center;
+      box-shadow: 0 4px 16px rgba(37, 99, 235, 0.35);
+      opacity: 0;
+      visibility: hidden;
+      transition: opacity 0.3s ease, visibility 0.3s ease, transform 0.2s ease;
+    }
+
+    #back-to-top.visible {
+      opacity: 1;
+      visibility: visible;
+    }
+
+    #back-to-top:hover {
+      background: #1d4ed8;
+      transform: translateY(-3px);
+    }
+
+    /* Footer credit */
+    .site-footer {
+      text-align: center;
+      padding: 14px 0 10px;
+      font-size: 12px;
+      color: #94a3b8;
+      letter-spacing: 0.02em;
+    }
+
+    .site-footer span {
+      color: #64748b;
+      font-weight: 600;
+    }
+
+    @media print {
+      #back-to-top { display: none !important; }
+      .site-footer { display: none !important; }
+    }
+
     .signs {
       display: grid;
       grid-template-columns: 1fr 1fr 1fr;
@@ -300,9 +351,11 @@
 </head>
 
 <body>
+  <!-- Floating Back to Top button -->
+  <button id="back-to-top" title="Back to top" aria-label="Back to top" onclick="window.scrollTo({top:0,behavior:'smooth'})">&#8679;</button>
+
   <div class="no-print">
     <div class="btnbar">
-      <button class="btn secondary" onclick="window.scrollTo({top:0,behavior:'smooth'})">Back to top</button>
       <button class="btn" onclick="window.print()">Print (Landscape)</button>
     </div>
   </div>
@@ -642,6 +695,21 @@
       </table>
     </div>
   </section>
+
+  <!-- Back to Top scroll logic -->
+  <script>
+    (function () {
+      var btn = document.getElementById('back-to-top');
+      if (!btn) return;
+      window.addEventListener('scroll', function () {
+        if (window.scrollY > 300) {
+          btn.classList.add('visible');
+        } else {
+          btn.classList.remove('visible');
+        }
+      }, { passive: true });
+    })();
+  </script>
 
 </body>
 

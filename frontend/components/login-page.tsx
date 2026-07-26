@@ -42,7 +42,7 @@ export function LoginPage({ onLogin }: LoginPageProps) {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary/5 via-background to-primary/10 p-4">
+    <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-primary/5 via-background to-primary/10 p-4">
       <Card className="w-full max-w-md shadow-lg">
         <CardHeader className="space-y-4 text-center">
           <div className="flex justify-center">
@@ -94,6 +94,9 @@ export function LoginPage({ onLogin }: LoginPageProps) {
           <p className="mt-4 text-center text-xs text-muted-foreground">Login allowed only for SRM faculty email IDs</p>
         </CardContent>
       </Card>
+      <p className="mt-4 text-[11px] text-muted-foreground/60">
+        Created by <span className="font-medium text-muted-foreground">Saransh Dutta</span> &amp; <span className="font-medium text-muted-foreground">Rituparna Ghosh</span>
+      </p>
     </div>
   )
 }
