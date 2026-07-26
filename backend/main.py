@@ -174,44 +174,6 @@ def health():
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# ONE-TIME SEED ENDPOINT — remove after first use
-# ─────────────────────────────────────────────────────────────────────────────
-@app.get("/admin/seed")
-def seed_faculty_once(token: str, db: Session = Depends(get_db)):
-    """
-    One-time endpoint to seed the faculty table on Render's Aiven DB.
-    Protected by token=<SECRET_KEY>.  REMOVE THIS ENDPOINT AFTER USE.
-    """
-    if token != SECRET_KEY:
-        raise HTTPException(status_code=403, detail="Forbidden")
-
-    FACULTY_DATA = [
-        {"email": "admin@srmist.edu.in",   "password": "admin123",   "name": "Admin",        "department": "CSE"},
-        {"email": "faculty@srmist.edu.in", "password": "faculty123", "name": "Faculty User", "department": "CSE"},
-        {"email": "rg0592@srmist.edu.in",  "password": "okokokok",   "name": "Rituparnaaa",  "department": "CSE"},
-    ]
-
-    added, skipped = 0, 0
-    for entry in FACULTY_DATA:
-        existing = db.query(Faculty).filter(Faculty.email == entry["email"]).first()
-        if existing:
-            skipped += 1
-            continue
-        hashed = bcrypt.hashpw(entry["password"].encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
-        db.add(Faculty(
-            email=entry["email"],
-            password=hashed,
-            name=entry["name"],
-            department=entry["department"],
-        ))
-        added += 1
-
-    db.commit()
-    return {"success": True, "added": added, "skipped": skipped,
-            "message": "DONE — now remove /admin/seed from main.py and redeploy!"}
-
-
-# ─────────────────────────────────────────────────────────────────────────────
 # Auth — Login
 # ─────────────────────────────────────────────────────────────────────────────
 class LoginRequest(BaseModel):
