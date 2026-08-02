@@ -13,6 +13,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Upload, FileCheck, AlertCircle, CheckCircle2, LogOut } from "lucide-react"
 import * as api from "@/lib/api"
 import { useToast } from "@/hooks/use-toast"
+import { DeveloperPortal } from "@/components/developer-section"
 
 interface DashboardProps {
   facultyEmail: string
@@ -130,6 +131,7 @@ export function Dashboard({ facultyEmail, onViewReport, onLogout }: DashboardPro
       <header className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
         <div className="container mx-auto px-4 py-4 flex items-center justify-between max-w-6xl md:px-8">
           <div className="flex items-center gap-3">
+            <DeveloperPortal />
             <Image src="/srm-logo.png" alt="SRM Logo" width={48} height={48} className="h-12 w-12" />
             <div>
               <h1 className="text-lg font-bold text-primary md:text-xl">SRM Result Analysis</h1>
