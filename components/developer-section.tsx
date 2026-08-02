@@ -35,7 +35,7 @@ const developers: DeveloperInfo[] = [
     imageSrc: "/dev-rituparna.jpg",
     imageAlt: "Rituparna Ghosh – Developer of SRM Result Analysis",
     department: "Information Technology",
-    section: "Section D",
+    section: "Section B",
     batch: "2024–2028",
   },
 ]
